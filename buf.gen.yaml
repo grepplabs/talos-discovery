@@ -1,0 +1,8 @@
+version: v2
+inputs:
+  - directory: internal/proto
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: internal/proto
+    opt:
+      - module=github.com/grepplabs/talos-discovery/internal/proto
