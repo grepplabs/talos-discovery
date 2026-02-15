@@ -28,5 +28,19 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.vscode/
+/.idea/
+*.iws
+*.iml
+*.ipr
+
+/bin/
+# Added by goreleaser init:
+/dist/
+
+/talos-discovery
+/discovery-service
+.debug
+__snapshot__
+
+/state.binpb

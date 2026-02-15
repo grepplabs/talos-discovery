@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Talos Discovery Service</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <a class="logo" href="#">
+    <div class="logo-icon">
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="14" height="3" rx="1"/>
+        <rect x="6.5" y="4" width="3" height="11" rx="1"/>
+      </svg>
+    </div>
+    <span class="logo-text">Talos Discovery Service</span>
+  </a>
+  <div class="header-right">
+    <div class="status-badge">
+      <div class="dot" id="liveDot"></div>
+      <span id="liveLabel">idle</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <div class="toolbar">
+    <div class="input-group">
+      <label class="input-label" for="clusterInput">cluster-id</label>
+      <input class="cluster-input" id="clusterInput" type="text" placeholder="cluster-id" />
+    </div>
+    <button class="btn primary" onclick="listAffiliates()">⟳ List</button>
+    <button class="btn" id="watchBtn" onclick="toggleWatch()">⏵ Watch</button>
+  </div>
+
+  <div class="error-banner" id="errorMsg"></div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Affiliates</div>
+      <div class="stat-value" id="statCount">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Showing</div>
+      <div class="stat-value" id="statShowing">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Events</div>
+      <div class="stat-value" id="statEvents">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Cluster</div>
+      <div class="stat-value sm" id="statCluster">—</div>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="search-wrap">
+      <label class="sr-only" for="searchInput">Filter affiliates</label>
+      <span class="search-icon">⌕</span>
+      <input class="search-input" id="searchInput" type="text"
+             placeholder="Filter by ID or endpoint…" oninput="applyFilter()" />
+    </div>
+    <span class="filter-info" id="filterCount"></span>
+  </div>
+
+  <div id="tableWrap"></div>
+  <div class="pagination" id="pagination"></div>
+
+  <div class="log-panel">
+    <div class="log-header">
+      <span>Event Log</span>
+      <span id="logCount">0 events</span>
+    </div>
+    <div class="log-body" id="logBody"></div>
+  </div>
+
+</main>
+
+<script>
+let eventSource  = null;
+let affiliates   = {};
+let eventCount   = 0;
+let filteredList = [];
+let page         = 0;
+const PAGE_SIZE  = 50;
+
+function getClusterID() {
+  return document.getElementById('clusterInput').value.trim();
+}
+
+function requireClusterID() {
+  const inp = document.getElementById('clusterInput');
+  const val = inp.value.trim();
+  if (!val) {
+    inp.classList.add('shake', 'empty');
+    inp.focus();
+    setTimeout(() => inp.classList.remove('shake'), 500);
+    inp.addEventListener('input', () => inp.classList.remove('empty'), { once: true });
+    return false;
+  }
+  return true;
+}
+
+function escHTML(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function log(msg) {
+  const body = document.getElementById('logBody');
+  const t = new Date().toLocaleTimeString();
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = '<span class="log-ts">' + t + '</span><span class="log-ok">✓</span>' + escHTML(msg);
+  body.prepend(div);
+  while (body.children.length > 100) body.removeChild(body.lastChild);
+  eventCount++;
+  document.getElementById('statEvents').textContent = eventCount;
+  document.getElementById('logCount').textContent = eventCount + ' events';
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorMsg');
+  el.textContent = msg;
+  el.style.display = msg ? 'flex' : 'none';
+}
+
+function applyFilter() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const all = Object.values(affiliates);
+  filteredList = q ? all.filter(a =>
+    a.id.toLowerCase().includes(q) ||
+    (a.endpoints||[]).some(e => e.toLowerCase().includes(q))
+  ) : all;
+  page = 0;
+  renderTable();
+}
+
+function renderTable() {
+  const wrap = document.getElementById('tableWrap');
+  const total = filteredList.length;
+  const allTotal = Object.keys(affiliates).length;
+
+  document.getElementById('statCount').textContent = allTotal;
+  document.getElementById('statShowing').textContent = total;
+  document.getElementById('filterCount').textContent = total !== allTotal ? `${total} / ${allTotal}` : '';
+
+  if (total === 0) {
+    wrap.innerHTML = '<div class="empty-state"><div class="empty-icon">◈</div>' +
+      (allTotal === 0 ? 'Enter a cluster ID and click <strong>List</strong> or <strong>Watch</strong>' : 'No matches') + '</div>';
+    document.getElementById('pagination').innerHTML = '';
+    return;
+  }
+
+  const start = page * PAGE_SIZE;
+  const slice = filteredList.slice(start, start + PAGE_SIZE);
+
+  let rows = '';
+  for (const a of slice) {
+    const epTags = (a.endpoints && a.endpoints.length)
+      ? a.endpoints.slice(0, 8).map(e => `<span class="ep-tag" title="${escHTML(e)}">${escHTML(e)}</span>`).join('') +
+        (a.endpoints.length > 8 ? `<span class="ep-tag">+${a.endpoints.length - 8}</span>` : '')
+      : '<span style="color:var(--muted2);font-size:.72rem;font-family:\'JetBrains Mono\',monospace">—</span>';
+
+    rows += `<tr class="${a._deleted ? 'deleted' : ''}">
+      <td><a class="id-link" title="${escHTML(a.id)}" href="#" onclick="openModal(this.dataset.id);return false;" data-id="${escHTML(a.id)}">${escHTML(a.id)}</a></td>
+      <td><span class="badge ${a._deleted ? 'badge-deleted">DEL' : 'badge-online">● ON'}</span></td>
+      <td><span class="data-cell" title="${escHTML(a.data||'')}">${escHTML(a.data||'—')}</span></td>
+      <td><div class="ep-tags">${epTags}</div></td>
+    </tr>`;
+  }
+
+  wrap.innerHTML = `<div class="table-outer"><table class="affiliate-table">
+    <thead><tr>
+      <th>Affiliate ID</th>
+      <th>Status</th>
+      <th>Data</th>
+      <th>Endpoints</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  if (totalPages <= 1) { document.getElementById('pagination').innerHTML = ''; return; }
+
+  let pages = '';
+  const p = page;
+  const maxBtn = 7;
+  let lo = Math.max(0, p - 3), hi = Math.min(totalPages - 1, lo + maxBtn - 1);
+  if (hi - lo < maxBtn - 1) lo = Math.max(0, hi - maxBtn + 1);
+
+  if (lo > 0) pages += `<button class="page-btn" onclick="goPage(0)">1</button><span style="padding:0 4px;color:var(--muted2)">…</span>`;
+  for (let i = lo; i <= hi; i++) {
+    pages += `<button class="page-btn${i===p?' active-page':''}" onclick="goPage(${i})">${i+1}</button>`;
+  }
+  if (hi < totalPages - 1) pages += `<span style="padding:0 4px;color:var(--muted2)">…</span><button class="page-btn" onclick="goPage(${totalPages-1})">${totalPages}</button>`;
+
+  document.getElementById('pagination').innerHTML =
+    `<span>${start+1}–${Math.min(start+PAGE_SIZE, total)} of ${total}</span>` +
+    `<div class="page-btns">
+      <button class="page-btn" onclick="goPage(${p-1})" ${p===0?'disabled':''}>‹ Prev</button>
+      ${pages}
+      <button class="page-btn" onclick="goPage(${p+1})" ${p===totalPages-1?'disabled':''}>Next ›</button>
+    </div>`;
+}
+
+function goPage(n) {
+  page = n;
+  renderTable();
+  document.getElementById('tableWrap').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function applyUpdate(data) {
+  // Handle both formats:
+  // Batch:      { affiliates: [...], deleted: bool }
+  // Single:     { affiliate: {...}, deleted: bool }
+  // Flat array: [...]
+  // Single obj with id: { id: "...", endpoints: [...], ... }
+
+  let items = [];
+  let deleted = false;
+
+  if (Array.isArray(data)) {
+    items = data;
+  } else if (data.affiliates) {
+    items = data.affiliates;
+    deleted = data.deleted === true;
+  } else if (data.affiliate) {
+    items = [data.affiliate];
+    deleted = data.deleted === true;
+  } else if (data.id) {
+    // the event payload IS the affiliate object directly
+    items = [data];
+    deleted = data.deleted === true;
+  }
+
+  if (items.length === 0) return;
+
+  for (const a of items) {
+    if (deleted || a.deleted === true) {
+      a._deleted = true;
+      affiliates[a.id] = a;
+      log('Deleted: ' + a.id);
+      setTimeout(() => { delete affiliates[a.id]; applyFilter(); }, 3000);
+    } else {
+      const isNew = !affiliates[a.id];
+      affiliates[a.id] = a;
+      log((isNew ? 'New: ' : 'Updated: ') + a.id);
+    }
+  }
+  applyFilter();
+}
+
+async function listAffiliates() {
+  stopWatch('Watch stopped: listing affiliates');
+  if (!requireClusterID()) return;
+  const id = getClusterID();
+  document.getElementById('statCluster').textContent = id;
+  showError('');
+  try {
+    const res = await fetch('/api/clusters/' + encodeURIComponent(id) + '/affiliates');
+    if (!res.ok) {
+      showError('Error: HTTP ' + res.status);
+      log('List error: HTTP ' + res.status);
+      return;
+    }
+    const data = await res.json();
+    affiliates = {};
+    for (const a of (data.affiliates || [])) affiliates[a.id] = a;
+    applyFilter();
+    log('Listed ' + Object.keys(affiliates).length + ' affiliates for ' + id);
+  } catch (e) {
+    showError('Error: ' + e.message);
+    log('List error: ' + e.message);
+  }
+}
+
+function setLive(live) {
+  document.getElementById('liveDot').className = 'dot' + (live ? ' live' : '');
+  document.getElementById('liveLabel').textContent = live ? 'live' : 'idle';
+}
+
+function toggleWatch() {
+  if (eventSource) stopWatch(); else startWatch();
+}
+
+function startWatch() {
+  if (!requireClusterID()) return;
+  const id = getClusterID();
+  document.getElementById('statCluster').textContent = id;
+  showError('');
+
+  const btn = document.getElementById('watchBtn');
+  btn.textContent = '⏹ Stop';
+  btn.classList.add('watch-active');
+
+  eventSource = new EventSource('/api/clusters/' + encodeURIComponent(id) + '/watch');
+  log('Connecting to cluster: ' + id);
+
+  eventSource.onopen = () => {
+    setLive(true);
+    log('Watching cluster: ' + id);
+  };
+
+  // Handle named 'update' events
+  eventSource.addEventListener('update', e => {
+    try { applyUpdate(JSON.parse(e.data)); }
+    catch (err) { log('Parse error: ' + err.message); }
+  });
+
+  // Also catch unnamed/default message events
+  eventSource.onmessage = e => {
+    try { applyUpdate(JSON.parse(e.data)); }
+    catch (err) { log('Parse error: ' + err.message); }
+  };
+
+  eventSource.onerror = () => {
+    if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+      log('Stream closed.');
+      stopWatch();
+    } else {
+      setLive(false);
+      log('Stream error — reconnecting...');
+    }
+  };
+}
+
+function stopWatch(message = 'Watch stopped') {
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  setLive(false);
+  document.getElementById('watchBtn').textContent = '⏵ Watch';
+  document.getElementById('watchBtn').classList.remove('watch-active');
+  log(message);
+}
+
+function openModal(id) {
+  // id comes from data-id attribute which used escHTML — find the real affiliate
+  const a = affiliates[id] || Object.values(affiliates).find(x => escHTML(x.id) === id);
+  if (!a) return;
+
+  const eps = (a.endpoints && a.endpoints.length)
+    ? `<ul style="list-style:none;display:flex;flex-direction:column;gap:4px;width:100%">${
+        a.endpoints.map(e => `<li><span class="modal-ep-tag" style="display:block;width:100%">${escHTML(e)}</span></li>`).join('')
+      }</ul>`
+    : '<span style="color:var(--muted2)">—</span>';
+
+  const rows = [
+    ['Status',    a._deleted
+      ? '<span class="badge badge-deleted">DEL</span>'
+      : '<span class="badge badge-online">● ONLINE</span>'],
+    ['Data',      escHTML(a.data || '—')],
+    ['Endpoints', eps],
+  ];
+
+  // any extra keys beyond the known ones
+  const known = new Set(['id','data','endpoints','_deleted']);
+  Object.entries(a).forEach(([k,v]) => {
+    if (!known.has(k)) rows.push([escHTML(k), escHTML(JSON.stringify(v))]);
+  });
+
+  const gridRows = rows.map(([k,v]) =>
+    `<div class="detail-key">${k}</div><div class="detail-val">${v}</div>`
+  ).join('');
+
+  document.getElementById('modalBody').innerHTML =
+    `<div class="modal-id">${escHTML(id)}</div>
+     <div class="detail-grid">${gridRows}</div>`;
+
+  document.getElementById('modalBackdrop').classList.add('open');
+  document.addEventListener('keydown', onModalKey);
+}
+
+function closeModal() {
+  document.getElementById('modalBackdrop').classList.remove('open');
+  document.removeEventListener('keydown', onModalKey);
+}
+
+function onModalKey(e) {
+  if (e.key === 'Escape') closeModal();
+}
+
+document.getElementById('clusterInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    listAffiliates();
+  }
+});
+
+document.getElementById('modalBackdrop').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) {
+    closeModal();
+  }
+});
+
+</script>
+<!-- ── Affiliate detail modal ── -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-header">
+      <span class="modal-title" id="modalTitle">Affiliate Detail</span>
+      <button class="modal-close" onclick="closeModal()" title="Close">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+</body>

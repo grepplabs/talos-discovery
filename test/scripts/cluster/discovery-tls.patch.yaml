@@ -1,0 +1,45 @@
+cluster:
+  discovery:
+    enabled: true
+    registries:
+      kubernetes:
+        disabled: true
+      service:
+        endpoint: https://172.17.0.1:3000
+machine:
+  files:
+    - path: /etc/ssl/certs/ca-certificates.crt
+      permissions: 0644
+      op: append
+      content: |
+        -----BEGIN CERTIFICATE-----
+        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
+        -----END CERTIFICATE-----

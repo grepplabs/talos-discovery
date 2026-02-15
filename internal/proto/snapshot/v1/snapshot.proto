@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package snapshot.v1;
+
+option go_package = "github.com/grepplabs/talos-discovery/internal/proto/snapshot/v1;snapshotv1";
+
+import "google/protobuf/timestamp.proto";
+
+message Snapshot {
+  repeated Cluster clusters = 1;
+}
+
+message Cluster {
+  string id = 1;
+  repeated Affiliate affiliates = 2;
+}
+
+message Affiliate {
+  string id = 1;
+  bytes data = 2;
+  google.protobuf.Timestamp expiry = 3;
+  repeated Endpoint endpoints = 4;
+}
+
+message Endpoint {
+  bytes data = 1;
+  google.protobuf.Timestamp expiry = 2;
+}

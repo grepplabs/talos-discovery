@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Talos Discovery Service</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header>
+  <a class="logo" href="#">
+    <div class="logo-icon">
+      <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="14" height="3" rx="1"/>
+        <rect x="6.5" y="4" width="3" height="11" rx="1"/>
+      </svg>
+    </div>
+    <span class="logo-text">Talos Discovery Service</span>
+  </a>
+</header>
+
+<main>
+  <div class="toolbar">
+    <div class="input-group">
+      <label class="input-label" for="clusterInput">cluster-id</label>
+      <input class="cluster-input" id="clusterInput" type="text" placeholder="cluster-id" />
+    </div>
+    <button class="btn primary" onclick="listAffiliates()">⟳ List</button>
+    <a class="btn" href="/inspect.html">Inspect</a>
+  </div>
+
+  <div class="error-banner" id="errorMsg"></div>
+
+  <div class="table-outer">
+    <pre class="json-output" id="jsonOutput">{
+  "message": "Enter a cluster ID and press List"
+}</pre>
+  </div>
+</main>
+
+<script>
+function getClusterID() {
+  return document.getElementById('clusterInput').value.trim();
+}
+
+function requireClusterID() {
+  const inp = document.getElementById('clusterInput');
+  const val = inp.value.trim();
+  if (!val) {
+    inp.classList.add('shake', 'empty');
+    inp.focus();
+    setTimeout(() => inp.classList.remove('shake'), 500);
+    inp.addEventListener('input', () => inp.classList.remove('empty'), { once: true });
+    return false;
+  }
+  return true;
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorMsg');
+  el.textContent = msg;
+  el.style.display = msg ? 'flex' : 'none';
+}
+
+async function listAffiliates() {
+  if (!requireClusterID()) return;
+  const id = getClusterID();
+  showError('');
+  try {
+    const res = await fetch('/api/clusters/' + encodeURIComponent(id) + '/affiliates');
+    if (!res.ok) {
+      showError('Error: HTTP ' + res.status);
+      return;
+    }
+    const data = await res.json();
+    document.getElementById('jsonOutput').textContent = JSON.stringify(data, null, 2);
+  } catch (e) {
+    showError('Error: ' + e.message);
+  }
+}
+
+document.getElementById('clusterInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    listAffiliates();
+  }
+});
+</script>
+
+</body>
+</html>

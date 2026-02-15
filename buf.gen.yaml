@@ -1,0 +1,12 @@
+version: v2
+inputs:
+  - directory: api
+  - directory: internal/proto
+plugins:
+  - local:
+      - go
+      - run
+      - google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+    out: .
+    opt:
+      - module=github.com/grepplabs/talos-discovery

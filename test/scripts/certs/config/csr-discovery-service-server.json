@@ -1,0 +1,19 @@
+{
+  "CN": "discovery-service.talos-discovery.svc.cluster.local",
+  "hosts": [
+    "*.discovery-service.talos-discovery.svc",
+    "*.discovery-service.talos-discovery.svc.cluster.local",
+    "localhost",
+    "172.17.0.1",
+    "127.0.0.1",
+    "127.0.0.1.nip.io",
+    "172.17.0.1.nip.io"
+  ],
+  "key": {
+    "algo": "rsa",
+    "size": 4096
+  },
+  "names": [
+    { "O": "Talos Discovery Service", "OU": "Server" }
+  ]
+}

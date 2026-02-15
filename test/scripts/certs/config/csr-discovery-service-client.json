@@ -1,0 +1,10 @@
+{
+  "CN": "discovery-service-client",
+  "hosts": [""],
+  "key": {
+    "algo": "rsa", "size": 4096
+  },
+  "names": [
+    { "O": "Talos Discovery Service", "OU": "Client" }
+  ]
+}
