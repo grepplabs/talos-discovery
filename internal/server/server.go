@@ -2,43 +2,100 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"log/slog"
 	"net"
 	"os"
 	"os/signal"
-	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
-	tlsserverconfig "github.com/grepplabs/cert-source/tls/server/config"
-	"github.com/grepplabs/loggo/zlog"
+	"github.com/grepplabs/talos-discovery/internal/metrics"
+	"github.com/grepplabs/talos-discovery/internal/runutil"
+	"github.com/grepplabs/talos-discovery/internal/web"
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
-	slogzap "github.com/samber/slog-zap/v2"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 
+	"github.com/grepplabs/loggo/zlog"
 	"github.com/grepplabs/talos-discovery/internal/config"
 	"github.com/grepplabs/talos-discovery/internal/state"
 )
 
-func StartDiscoveryServer(cfg config.Config) error {
+func StartDiscoveryServer(cfg config.ServiceCommandConfig) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	st, err := state.NewState(state.WithSnapshot(cfg.DiscoveryConfig.SnapshotPath))
 	if err != nil {
 		return fmt.Errorf("failed to create state: %w", err)
 	}
-	registry := newRegistry()
+	registry := metrics.NewRegistry()
 	discoveryServer := NewDiscoveryServer(ctx, st, cfg.DiscoveryConfig, registry)
 
 	var group run.Group
-	addListenerServer(&group, cfg, discoveryServer.RunListener)
+	runutil.AddListenerServer("discovery", &group, cfg.Server, discoveryServer.RunListener)
+
+	if cfg.WebEnable {
+		webServer, err := newEmbeddedWebServer(ctx, &group, cfg, discoveryServer, registry)
+		if err != nil {
+			return fmt.Errorf("failed to initialize embedded web: %w", err)
+		}
+		runutil.AddListenerServer("web", &group, cfg.WebServer, webServer.RunListener)
+		runutil.AddGracefulShutdownActor(&group, ctx, "embedded web server", 2*time.Second, webServer.Shutdown)
+	}
+
 	addCleanupActor(&group, ctx, st, cfg.DiscoveryConfig)
 	addSnapshotActor(&group, ctx, st, cfg.DiscoveryConfig)
-	addContextCancelActor(&group, ctx, stop)
+	runutil.AddContextCancelActor(&group, ctx, stop)
 	return group.Run()
+}
+
+func newEmbeddedWebServer(ctx context.Context, group *run.Group, cfg config.ServiceCommandConfig, discoveryServer *DiscoveryServer, registry *prometheus.Registry) (*web.WebServer, error) {
+	opts := []web.WebServerOption{web.WithMetrics(registry)}
+	target := strings.TrimSpace(cfg.WebDiscoveryClient.Target)
+	if target == "" || strings.EqualFold(target, config.InMemoryTransport) {
+		ln := addBufconnDiscoveryListener(group, discoveryServer.RunListener)
+		conn, err := newBufconnDiscoveryClientConn(ln)
+		if err != nil {
+			_ = ln.Close()
+			return nil, err
+		}
+		client := web.NewDiscoveryClientWithConn(conn)
+		opts = append(opts, web.WithClient(client))
+	} else {
+		opts = append(opts, web.WithClientConfig(cfg.WebDiscoveryClient))
+	}
+	return web.NewWebServer(ctx, registry, opts...)
+}
+
+func addBufconnDiscoveryListener(group *run.Group, runWithListener func(net.Listener) error) *bufconn.Listener {
+	const bufconnSize = 1024 * 1024
+
+	ln := bufconn.Listen(bufconnSize)
+	group.Add(func() error {
+		return runWithListener(ln)
+	}, func(error) {
+		_ = ln.Close()
+	})
+	return ln
+}
+
+func newBufconnDiscoveryClientConn(ln *bufconn.Listener) (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(
+		"passthrough:///bufconn",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return ln.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		_ = ln.Close()
+		return nil, fmt.Errorf("failed to create bufconn gRPC client: %w", err)
+	}
+	return conn, nil
 }
 
 func addCleanupActor(group *run.Group, ctx context.Context, st *state.State, cfg config.DiscoveryConfig) {
@@ -58,29 +115,6 @@ func addCleanupActor(group *run.Group, ctx context.Context, st *state.State, cfg
 			}
 		}
 	}, func(error) {
-	})
-}
-
-func addListenerServer(group *run.Group, cfg config.Config, runWithListener func(net.Listener) error) {
-	var ln net.Listener
-	group.Add(func() error {
-		listener, err := buildListener(cfg.Server)
-		if err != nil {
-			return fmt.Errorf("error building listener: %w", err)
-		}
-		ln = listener
-
-		msg := "starting discovery service"
-		if cfg.Server.TLS.Enable {
-			msg = "starting TLS discovery server"
-		}
-		zlog.Infof("%s on %s (version: %s)", msg, cfg.Server.Addr, getVersion())
-
-		return runWithListener(ln)
-	}, func(error) {
-		if ln != nil {
-			_ = ln.Close()
-		}
 	})
 }
 
@@ -107,51 +141,4 @@ func addSnapshotActor(group *run.Group, ctx context.Context, st *state.State, cf
 		}
 	}, func(error) {
 	})
-}
-
-func addContextCancelActor(group *run.Group, ctx context.Context, stop context.CancelFunc) {
-	group.Add(
-		func() error {
-			<-ctx.Done()
-			zlog.Infof("stop received, shutting down")
-			return nil
-		},
-		func(error) {
-			stop()
-		},
-	)
-}
-
-func buildListener(cfg config.ServerConfig) (net.Listener, error) {
-	//nolint:noctx
-	ln, err := net.Listen("tcp", cfg.Addr)
-	if err != nil {
-		return nil, fmt.Errorf("error listening on %s: %w", cfg.Addr, err)
-	}
-	if !cfg.TLS.Enable {
-		return ln, nil
-	}
-	logger := slog.New(slogzap.Option{Logger: zlog.LogSink}.NewZapHandler())
-	tlsConfig, err := tlsserverconfig.GetServerTLSConfig(logger, &cfg.TLS)
-	if err != nil {
-		_ = ln.Close()
-		return nil, fmt.Errorf("error creating TLS server config: %w", err)
-	}
-	return tls.NewListener(ln, tlsConfig), nil
-}
-
-func newRegistry() *prometheus.Registry {
-	registerer := prometheus.NewRegistry()
-	registerer.MustRegister(
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-	)
-	return registerer
-}
-
-func getVersion() string {
-	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" {
-		return bi.Main.Version
-	}
-	return config.Version
 }

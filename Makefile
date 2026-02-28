@@ -4,13 +4,19 @@ SHELL := /usr/bin/env bash
 
 ROOT_DIR       = $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 VERSION       ?= $(shell git describe --tags --always --dirty)
+LDFLAGS       ?= -X github.com/grepplabs/talos-discovery/internal/config.Version=$(VERSION)
 
 GOLANGCI_LINT_VERSION := v2.10.1
 BUF_VERSION           := v1.66.0
 PROTO_FILES     := $(shell find internal/proto -name '*.proto')
 PROTO_GEN_FILES := $(patsubst %.proto,%.pb.go,$(PROTO_FILES))
 
+
+DOCKER_BUILD_ARGS ?=
+LOCAL_IMAGE := local/talos-discovery:latest
+
 TEST_SERVER_PORT ?= 3000
+TEST_CERT_DIR    ?= $(ROOT_DIR)/test/scripts/certs/output
 
 ##@ General
 
@@ -64,11 +70,51 @@ vet: ## run go vet against code
 tidy: ## run go mod tidy
 	go mod tidy
 
+##@ Build
+
+.PHONY: build
+build: ## build binary
+	CGO_ENABLED=0 go build -gcflags "all=-N -l" -ldflags "$(LDFLAGS)" -o ./discovery-service ./cmd/discovery-service/main.go
+
+.PHONY: clean
+clean: ## clean
+	@rm -f ./state.binpb
+	@rm -f ./discovery-service
+
+##@ Docker
+
+.PHONY: docker-build
+docker-build: ## build docker image
+	docker build --build-arg VERSION=$(VERSION) $(DOCKER_BUILD_ARGS) -t ${LOCAL_IMAGE} .
 
 ##@ Run targets
 run-service: ## run discovery service
-	SERVER_ADDR=:$(TEST_SERVER_PORT) LOG_LEVEL=debug go run cmd/discovery-service/main.go --discovery-snapshot-path=./state.bin --discovery-snapshot-path=./state.binpb
+	SERVER_ADDR=:$(TEST_SERVER_PORT) LOG_LEVEL=debug go run cmd/discovery-service/main.go service --discovery-snapshot-path=./state.bin --discovery-snapshot-path=./state.binpb
 
+run-service-tls: ## run TLS discovery service
+	SERVER_ADDR=:$(TEST_SERVER_PORT) LOG_LEVEL=debug go run cmd/discovery-service/main.go service --discovery-snapshot-path=./state.bin --discovery-snapshot-path=./state.binpb \
+		--server-tls-enable \
+		--server-tls-refresh=10s \
+		--server-tls-file-key=$(TEST_CERT_DIR)/discovery-service-server-key.pem \
+		--server-tls-file-cert=$(TEST_CERT_DIR)/discovery-service-server.pem
+
+run-service-web: ## run discovery service and web
+	SERVER_ADDR=:$(TEST_SERVER_PORT) LOG_LEVEL=debug go run cmd/discovery-service/main.go service --discovery-snapshot-path=./state.bin --discovery-snapshot-path=./state.binpb --web-enable
+
+run-service-web-tls: ## run TLS discovery service and web
+	SERVER_ADDR=:$(TEST_SERVER_PORT) LOG_LEVEL=debug go run cmd/discovery-service/main.go service --discovery-snapshot-path=./state.bin --discovery-snapshot-path=./state.binpb --web-enable  \
+		--server-tls-enable \
+		--server-tls-refresh=10s \
+		--server-tls-file-key=$(TEST_CERT_DIR)/discovery-service-server-key.pem \
+		--server-tls-file-cert=$(TEST_CERT_DIR)/discovery-service-server.pem
+
+run-web: ## run discovery web
+	LOG_LEVEL=debug go run cmd/discovery-service/main.go web
+
+run-web-tls: ## run discovery web (TLS client)
+	LOG_LEVEL=debug go run cmd/discovery-service/main.go web \
+		--web-discovery-client-tls-enable \
+		--web-discovery-client-tls-file-root-ca=$(TEST_CERT_DIR)/ca.pem
 
 ##@ Test targets
 
@@ -76,49 +122,12 @@ run-service: ## run discovery service
 test: ## run tests
 	go test -v -race -count=1 ./...
 
+.PHONY: test-ui
+test-ui: export CHROMEDP_E2E=1
+test-ui: ## run ui tests
+	go test -v -race -count=1 -run '^TestUI' ./internal/web/...
+
 
 ##@ Examples targets
 
-get-proto: ## get cluster.proto
-	curl https://raw.githubusercontent.com/siderolabs/discovery-api/refs/heads/main/api/v1alpha1/server/cluster.proto -o test/grpc/cluster.proto
-	sed -i 's|vendor/google/duration.proto|google/protobuf/duration.proto|' test/grpc/cluster.proto
-
-
-example-health:
-	grpcurl -plaintext -d '{"service": "sidero.discovery.server.Cluster"}' \
-		localhost:$(TEST_SERVER_PORT) grpc.health.v1.Health/Check
-
-example-hello:
-	grpcurl -plaintext -import-path test/grpc -proto cluster.proto \
-		-d '{"clusterId": "abc", "clientVersion": "v1.10.1"}' -H 'X-Real-IP: 1.2.3.4' \
-		localhost:$(TEST_SERVER_PORT) sidero.discovery.server.Cluster/Hello
-
-example-list:
-	grpcurl -plaintext -import-path test/grpc -proto cluster.proto \
-		-d '{"clusterId": "abc"}' \
-		localhost:$(TEST_SERVER_PORT) sidero.discovery.server.Cluster/List
-
-example-watch:
-	grpcurl -plaintext -import-path test/grpc -proto cluster.proto \
-		-d '{"clusterId": "abc"}' \
-		localhost:$(TEST_SERVER_PORT) sidero.discovery.server.Cluster/Watch
-
-example-update-node-1:
-	grpcurl -plaintext -import-path test/grpc -proto cluster.proto \
-        -d '{"clusterId": "abc", "affiliateId": "node-1", "affiliateData": "dGVzdA==", "ttl": "300s"}' \
-        localhost:$(TEST_SERVER_PORT) sidero.discovery.server.Cluster/AffiliateUpdate
-
-example-update-node-2:
-	grpcurl -plaintext -import-path test/grpc -proto cluster.proto \
-		-d '{"clusterId": "abc", "affiliateId": "node-2", "affiliateData": "dGVzdA==", "ttl": "300s", "affiliateEndpoints": ["bm9kZS0yLWVwLTEK", "bm9kZS0yLWVwLTIK"]}' \
-		localhost:$(TEST_SERVER_PORT) sidero.discovery.server.Cluster/AffiliateUpdate
-
-example-delete-node-1:
-	grpcurl -plaintext -import-path test/grpc -proto cluster.proto \
-		-d '{"clusterId": "abc", "affiliateId": "node-1"}' \
-		localhost:$(TEST_SERVER_PORT) sidero.discovery.server.Cluster/AffiliateDelete
-
-example-delete-node-2:
-	grpcurl -plaintext -import-path test/grpc -proto cluster.proto \
-		-d '{"clusterId": "abc", "affiliateId": "node-2"}' \
-		localhost:$(TEST_SERVER_PORT) sidero.discovery.server.Cluster/AffiliateDelete
+include test/scripts/mk/examples.mk

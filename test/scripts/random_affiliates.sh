@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # ---- config ----
 HOST="${HOST:-localhost}"
 TEST_SERVER_PORT="${TEST_SERVER_PORT:-3000}"
-IMPORT_PATH="${IMPORT_PATH:-grpc}"
+IMPORT_PATH="${IMPORT_PATH:-${SCRIPT_DIR}/../grpc}"
 PROTO_FILE="${PROTO_FILE:-cluster.proto}"
 METHOD="${METHOD:-sidero.discovery.server.Cluster/AffiliateUpdate}"
 

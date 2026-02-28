@@ -11,16 +11,22 @@ import (
 	"github.com/spf13/viper"
 )
 
-func BindFlagsToViper(cmd *cobra.Command) {
+func BindFlagsToViper(root *cobra.Command) {
+	originalPersistentPreRunE := root.PersistentPreRunE
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		applyViperToCommand(cmd)
+		if originalPersistentPreRunE != nil {
+			return originalPersistentPreRunE(cmd, args)
+		}
+		return nil
+	}
+
 	cobra.OnInitialize(func() {
 		viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 		viper.AutomaticEnv()
 
-		if err := viper.BindPFlags(cmd.PersistentFlags()); err != nil {
-			zlog.Fatalw("unable to bind persistent flags to viper", "error", err)
-		}
-		if err := viper.BindPFlags(cmd.Flags()); err != nil {
-			zlog.Fatalw("unable to bind flags to viper", "error", err)
+		if err := bindCommandTreeFlags(root); err != nil {
+			zlog.Fatalw("unable to bind command flags to viper", "error", err)
 		}
 
 		if viper.IsSet("config") {
@@ -32,8 +38,18 @@ func BindFlagsToViper(cmd *cobra.Command) {
 			}
 			zlog.Infof("using config file: %s", viper.ConfigFileUsed())
 		}
-		applyViperToCommand(cmd)
 	})
+}
+
+func bindCommandTreeFlags(cmd *cobra.Command) error {
+	applyViperToCommand(cmd)
+	for _, sub := range cmd.Commands() {
+		if err := bindCommandTreeFlags(sub); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func applyViperToCommand(cmd *cobra.Command) {
