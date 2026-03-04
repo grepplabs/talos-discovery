@@ -1,0 +1,30 @@
+version: 2
+project_name: talos-discovery
+
+builds:
+  - id: talos-discovery
+    main: ./cmd/discovery-service/main.go
+    binary: discovery-service
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -a
+archives: []
+checksum:
+  disable: true
+changelog:
+  use: git
+  sort: asc
+
+release:
+  github:
+    owner: grepplabs
+    name: talos-discovery
+  draft: false
+  prerelease: auto

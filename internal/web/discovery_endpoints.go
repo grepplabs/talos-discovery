@@ -44,15 +44,15 @@ func listAffiliatesHandler(client *DiscoveryClient) gin.HandlerFunc {
 			c.JSON(grpcErrorToHTTPStatus(err), gin.H{"error": err.Error()})
 			return
 		}
-		out := make([]affiliateJSON, 0, len(resp.Affiliates))
-		for _, a := range resp.Affiliates {
-			eps := make([]string, len(a.Endpoints))
-			for i, ep := range a.Endpoints {
+		out := make([]affiliateJSON, 0, len(resp.GetAffiliates()))
+		for _, a := range resp.GetAffiliates() {
+			eps := make([]string, len(a.GetEndpoints()))
+			for i, ep := range a.GetEndpoints() {
 				eps[i] = base64.StdEncoding.EncodeToString(ep)
 			}
 			out = append(out, affiliateJSON{
-				ID:        a.Id,
-				Data:      base64.StdEncoding.EncodeToString(a.Data),
+				ID:        a.GetId(),
+				Data:      base64.StdEncoding.EncodeToString(a.GetData()),
 				Endpoints: eps,
 			})
 		}
@@ -90,6 +90,7 @@ func watchAffiliatesHandler(watchManager *DiscoveryWatchManager) gin.HandlerFunc
 	}
 }
 
+//nolint:exhaustive,cyclop
 func grpcErrorToHTTPStatus(err error) int {
 	switch status.Code(err) {
 	case codes.InvalidArgument, codes.FailedPrecondition, codes.OutOfRange:

@@ -55,7 +55,7 @@ func AddListenerServer(name string, group *run.Group, cfg config.ServerConfig, r
 func AddGracefulShutdownActor(group *run.Group, ctx context.Context, component string, timeout time.Duration, shutdown func(context.Context) error) {
 	group.Add(func() error {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 		defer cancel()
 		if err := shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutdown %s: %w", component, err)

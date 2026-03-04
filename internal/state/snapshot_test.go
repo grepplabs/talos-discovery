@@ -73,7 +73,7 @@ func TestSaveSnapshot_WritesExpiredAffiliate(t *testing.T) {
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Greater(t, info.Size(), int64(0), "expired affiliate should still be written")
+	assert.Positive(t, info.Size(), "expired affiliate should still be written")
 }
 
 func TestSaveSnapshot_WritesExpiredEndpoints(t *testing.T) {
@@ -99,7 +99,7 @@ func TestSaveSnapshot_WritesExpiredEndpoints(t *testing.T) {
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Greater(t, info.Size(), int64(0), "expired endpoints should still be written")
+	assert.Positive(t, info.Size(), "expired endpoints should still be written")
 }
 
 func TestSaveSnapshot_WritesEmptyCluster(t *testing.T) {

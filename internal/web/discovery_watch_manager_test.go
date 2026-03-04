@@ -32,19 +32,19 @@ func TestDiscoveryWatchManagerSubscribeUnsubscribeLifecycle(t *testing.T) {
 	require.NotNil(t, ch2)
 	require.Len(t, manager.entries, 1)
 	require.Equal(t, 2, manager.entries["cluster-1"].refs)
-	require.Equal(t, float64(1), testutil.ToFloat64(manager.metrics.activeDiscoveryWatchers))
-	require.Equal(t, float64(2), testutil.ToFloat64(manager.metrics.activeSubscribers))
+	require.InDelta(t, 1, testutil.ToFloat64(manager.metrics.activeDiscoveryWatchers), 0)
+	require.InDelta(t, 2, testutil.ToFloat64(manager.metrics.activeSubscribers), 0)
 
 	manager.Unsubscribe("cluster-1", ch1)
 	require.Len(t, manager.entries, 1)
 	require.Equal(t, 1, manager.entries["cluster-1"].refs)
-	require.Equal(t, float64(1), testutil.ToFloat64(manager.metrics.activeDiscoveryWatchers))
-	require.Equal(t, float64(1), testutil.ToFloat64(manager.metrics.activeSubscribers))
+	require.InDelta(t, float64(1), testutil.ToFloat64(manager.metrics.activeDiscoveryWatchers), 0)
+	require.InDelta(t, float64(1), testutil.ToFloat64(manager.metrics.activeSubscribers), 0)
 
 	manager.Unsubscribe("cluster-1", ch2)
-	require.Len(t, manager.entries, 0)
-	require.Equal(t, float64(0), testutil.ToFloat64(manager.metrics.activeDiscoveryWatchers))
-	require.Equal(t, float64(0), testutil.ToFloat64(manager.metrics.activeSubscribers))
+	require.Empty(t, manager.entries)
+	require.InDelta(t, float64(0), testutil.ToFloat64(manager.metrics.activeDiscoveryWatchers), 0)
+	require.InDelta(t, float64(0), testutil.ToFloat64(manager.metrics.activeSubscribers), 0)
 }
 
 func TestWatchDiscoveryBroadcastsEvent(t *testing.T) {
@@ -95,5 +95,5 @@ func TestWatchDiscoveryBroadcastsEvent(t *testing.T) {
 		t.Fatal("watch loop did not stop after cancel")
 	}
 
-	require.Equal(t, float64(1), testutil.ToFloat64(m.watchEvents))
+	require.InDelta(t, float64(1), testutil.ToFloat64(m.watchEvents), 0)
 }

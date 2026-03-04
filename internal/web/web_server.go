@@ -72,6 +72,7 @@ func NewWebServer(ctx context.Context, registry *prometheus.Registry, opts ...We
 		return nil, fmt.Errorf("create discovery watch manager: %w", err)
 	}
 	engine := newEngine()
+	//nolint:contextcheck
 	engine = addDiscoveryEndpoints(engine, client, watchManager)
 
 	if serverOpts.metricsRegistry != nil {
@@ -81,8 +82,12 @@ func NewWebServer(ctx context.Context, registry *prometheus.Registry, opts ...We
 	}
 
 	return &WebServer{
-		engine:          engine,
-		httpServer:      &http.Server{Handler: engine},
+		engine: engine,
+		httpServer: &http.Server{
+			Handler:           engine,
+			ReadHeaderTimeout: 5 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		},
 		discoveryClient: client,
 	}, nil
 }

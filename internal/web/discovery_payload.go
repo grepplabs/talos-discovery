@@ -25,12 +25,12 @@ func affiliatesToJSON(affiliates []*pb.Affiliate, deleted bool) (string, error) 
 	}
 	for _, a := range affiliates {
 		aj := affiliateJSON{
-			ID:   a.Id,
-			Data: base64.StdEncoding.EncodeToString(a.Data),
+			ID:   a.GetId(),
+			Data: base64.StdEncoding.EncodeToString(a.GetData()),
 		}
-		if len(a.Endpoints) > 0 {
-			aj.Endpoints = make([]string, len(a.Endpoints))
-			for i, ep := range a.Endpoints {
+		if len(a.GetEndpoints()) > 0 {
+			aj.Endpoints = make([]string, len(a.GetEndpoints()))
+			for i, ep := range a.GetEndpoints() {
 				aj.Endpoints[i] = base64.StdEncoding.EncodeToString(ep)
 			}
 		} else {

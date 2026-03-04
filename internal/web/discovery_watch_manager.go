@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"io"
 	"math/rand"
 	"sync"
@@ -22,6 +23,7 @@ type DiscoveryWatchManager struct {
 	mu      sync.Mutex
 	entries map[string]*watchEntry
 	client  *DiscoveryClient
+	//nolint:containedctx // root context is intentionally stored for manager lifetime control
 	rootCtx context.Context
 	metrics *watchManagerMetrics
 }
@@ -105,10 +107,12 @@ func nextBackoff(attempt int) time.Duration {
 	if d > maxDelay || d <= 0 {
 		d = maxDelay
 	}
+	// #nosec G404 -- jitter does not require cryptographic randomness
 	jitter := time.Duration(rand.Int63n(int64(d / 2)))
 	return d + jitter
 }
 
+//nolint:cyclop
 func watchDiscovery(ctx context.Context, client pb.ClusterClient, clusterID string, hub *Hub, metrics *watchManagerMetrics) {
 	retryAttempt := 0
 
@@ -134,7 +138,7 @@ func watchDiscovery(ctx context.Context, client pb.ClusterClient, clusterID stri
 
 		for {
 			resp, err := stream.Recv()
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			if err != nil {
@@ -143,7 +147,7 @@ func watchDiscovery(ctx context.Context, client pb.ClusterClient, clusterID stri
 				break
 			}
 			metrics.watchEvents.Inc()
-			data, err := affiliatesToJSON(resp.Affiliates, resp.Deleted)
+			data, err := affiliatesToJSON(resp.GetAffiliates(), resp.GetDeleted())
 			if err != nil {
 				zlog.Infof("failed to marshal affiliates for %q: %v", clusterID, err)
 				break

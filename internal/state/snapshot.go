@@ -58,6 +58,7 @@ func (s *State) SaveSnapshot(path string) error {
 func LoadSnapshot(path string) (*xsync.Map[string, *Cluster], error) {
 	zlog.Infof("loading state snapshot from: %s", path)
 
+	//nolint:gosec // provided in the config
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -75,20 +76,20 @@ func LoadSnapshot(path string) (*xsync.Map[string, *Cluster], error) {
 	clusters := xsync.NewMap[string, *Cluster]()
 	var totalAffiliates, totalEndpoints int
 
-	for _, sc := range snap.Clusters {
-		cluster := NewCluster(sc.Id)
-		for _, sa := range sc.Affiliates {
+	for _, sc := range snap.GetClusters() {
+		cluster := NewCluster(sc.GetId())
+		for _, sa := range sc.GetAffiliates() {
 			aff := &Affiliate{
-				id:   sa.Id,
-				data: sa.Data,
+				id:   sa.GetId(),
+				data: sa.GetData(),
 			}
-			if sa.Expiry != nil {
-				aff.expiry = sa.Expiry.AsTime()
+			if sa.GetExpiry() != nil {
+				aff.expiry = sa.GetExpiry().AsTime()
 			}
-			for _, se := range sa.Endpoints {
-				ep := Endpoint{data: se.Data}
-				if se.Expiry != nil {
-					ep.expiry = se.Expiry.AsTime()
+			for _, se := range sa.GetEndpoints() {
+				ep := Endpoint{data: se.GetData()}
+				if se.GetExpiry() != nil {
+					ep.expiry = se.GetExpiry().AsTime()
 				}
 				aff.endpoints = append(aff.endpoints, ep)
 				totalEndpoints++
@@ -96,12 +97,13 @@ func LoadSnapshot(path string) (*xsync.Map[string, *Cluster], error) {
 			cluster.affiliates[aff.id] = aff
 			totalAffiliates++
 		}
-		clusters.Store(sc.Id, cluster)
+		clusters.Store(sc.GetId(), cluster)
 	}
-	zlog.Infof("loaded state snapshot: clusters=%d affiliates=%d endpoints=%d", len(snap.Clusters), totalAffiliates, totalEndpoints)
+	zlog.Infof("loaded state snapshot: clusters=%d affiliates=%d endpoints=%d", len(snap.GetClusters()), totalAffiliates, totalEndpoints)
 	return clusters, nil
 }
 
+//nolint:unparam,gosec // path provided in the config
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 
@@ -139,6 +141,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	// sync parent directory (ensures rename is persisted)
 	dirFile, err := os.Open(dir)
 	if err == nil {
+		//nolint:errcheck
 		defer dirFile.Close()
 		_ = dirFile.Sync()
 	}

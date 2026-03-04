@@ -36,6 +36,6 @@ func TestAffiliatesToJSON(t *testing.T) {
 	}, env.Affiliates[0].Endpoints)
 
 	require.Equal(t, "node-2", env.Affiliates[1].ID)
-	require.Equal(t, "", env.Affiliates[1].Data)
+	require.Empty(t, env.Affiliates[1].Data)
 	require.Equal(t, []string{}, env.Affiliates[1].Endpoints)
 }

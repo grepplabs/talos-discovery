@@ -25,7 +25,7 @@ func TestHubBroadcastDeliversEvent(t *testing.T) {
 		t.Fatal("expected broadcast event")
 	}
 
-	require.Equal(t, float64(0), testutil.ToFloat64(m.broadcastDroppedEvents))
+	require.InDelta(t, float64(0), testutil.ToFloat64(m.broadcastDroppedEvents), 0)
 }
 
 func TestHubBroadcastDroppedEventsMetric(t *testing.T) {
@@ -42,5 +42,5 @@ func TestHubBroadcastDroppedEventsMetric(t *testing.T) {
 	}
 	hub.Broadcast(Event{Data: "dropped"})
 
-	require.Equal(t, float64(1), testutil.ToFloat64(m.broadcastDroppedEvents))
+	require.InDelta(t, float64(1), testutil.ToFloat64(m.broadcastDroppedEvents), 0)
 }
