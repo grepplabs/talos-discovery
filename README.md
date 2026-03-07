@@ -148,8 +148,17 @@ Open the discovery service web interface:
 google-chrome http://localhost:8080
 ```
 
+## License
+
+This repository is licensed under AGPL-3.0, except for specific files listed in
+`THIRD_PARTY_NOTICES.md`.
+
+`api/cluster.proto` is derived from Sidero Labs discovery API schema and is
+licensed under MPL-2.0. Generated files derived from that schema are listed in
+`THIRD_PARTY_NOTICES.md`. The MPL-2.0 license text is available at
+`LICENSES/MPL-2.0.txt`.
+
 
 [Discovery Service]: https://github.com/siderolabs/discovery-service
 [Discovery Client]: https://github.com/siderolabs/discovery-client
 [Talos Discovery]: https://docs.siderolabs.com/talos/v1.12/configure-your-talos-cluster/system-configuration/discovery
-
